@@ -1,0 +1,5 @@
+{
+  "name": "ClipBook AI",
+  "description": "An AI-powered research assistant that clips text from the web, summarizes it into professional formats (Reports, Emails, Notes), and saves directly to Notion or PDF.",
+  "requestFramePermissions": []
+}
