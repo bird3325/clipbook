@@ -13,18 +13,9 @@ export const generateAIContent = async (
     throw new Error("API Key가 설정되지 않았습니다. 설정에서 API Key를 입력해주세요.");
   }
 
-  // Safety Net: Deprecated model mapping to Gemini 3.0 Preview
-  let effectiveModel = model as string;
-  const deprecatedGemini = ['gemini-1.5-flash', 'gemini-1.5-flash-001', 'gemini-1.5-flash-latest', 'gemini-2.0-flash', 'gemini-2.0-flash-lite-preview-02-05', 'gemini-2.0-flash-lite', 'gemini-3-flash'];
-  const deprecatedPro = ['gemini-1.5-pro-001', 'gemini-pro', 'gemini-1.5-pro-002', 'gemini-1.5-pro', 'gemini-3-pro'];
-
-  if (deprecatedGemini.includes(effectiveModel)) {
-    effectiveModel = 'gemini-3-flash-preview';
-  } else if (deprecatedPro.includes(effectiveModel)) {
-    effectiveModel = 'gemini-3-pro-preview';
-  }
-
-  console.log(`[AI Logic] Using model: ${effectiveModel} (requested: ${model})`);
+  // Use the requested model directly
+  const effectiveModel = model as string;
+  console.log(`[AI Logic] Using model: ${effectiveModel}`);
 
   // 텍스트 조합 (출처 및 시간 정보 포함)
   const contentToAnalyze = clippings.map(c =>

@@ -6,9 +6,10 @@ import { Icons } from '../constants';
 interface LibraryTabProps {
   history: SavedItem[];
   onDelete: (id: string) => void;
+  onExport: (target: 'NOTION' | 'PDF', item: SavedItem) => void;
 }
 
-const LibraryTab: React.FC<LibraryTabProps> = ({ history, onDelete }) => {
+const LibraryTab: React.FC<LibraryTabProps> = ({ history, onDelete, onExport }) => {
   const [search, setSearch] = useState('');
 
   const filteredHistory = history.filter(item =>
@@ -87,7 +88,25 @@ const LibraryTab: React.FC<LibraryTabProps> = ({ history, onDelete }) => {
                     }}
                     className="px-3 py-1.5 bg-gray-50 rounded-lg text-gray-600 font-medium hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-xs border border-gray-200 hover:border-indigo-200"
                   >
-                    원문 보기 ↗
+                    원문 ↗
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onExport('NOTION', item);
+                    }}
+                    className="px-3 py-1.5 bg-white rounded-lg text-indigo-600 font-bold hover:bg-indigo-600 hover:text-white transition-all text-xs border border-indigo-200 shadow-sm"
+                  >
+                    Notion
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onExport('PDF', item);
+                    }}
+                    className="px-3 py-1.5 bg-white rounded-lg text-red-500 font-bold hover:bg-red-500 hover:text-white transition-all text-xs border border-red-200 shadow-sm"
+                  >
+                    PDF
                   </button>
                 </div>
               </div>

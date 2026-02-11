@@ -51,10 +51,14 @@ const App: React.FC = () => {
       if (result.showFloatingButton !== undefined) setShowFloatingButton(result.showFloatingButton);
 
       let initialModel = (result.aiModel as string) || 'gemini-3-flash-preview';
-      // Migration for deprecated or incorrect model names
-      const deprecatedModels = ['gemini-1.5-flash', 'gemini-1.5-flash-001', 'gemini-1.5-pro-001', 'gemini-pro', 'gemini-1.5-flash-latest', 'gemini-2.0-flash-lite-preview-02-05', 'gemini-1.5-pro-002', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-3-flash', 'gemini-3-pro'];
-      if (deprecatedModels.includes(initialModel)) {
-        if (initialModel.includes('pro')) {
+      // Migration for all older Gemini models to new 3.0 versions
+      const deprecatedGemini = ['gemini-1.5-flash', 'gemini-1.5-flash-001', 'gemini-1.5-flash-latest', 'gemini-2.0-flash', 'gemini-2.0-flash-lite-preview-02-05', 'gemini-2.0-flash-lite', 'gemini-1.0-pro'];
+      const deprecatedPro = ['gemini-1.5-pro-001', 'gemini-pro', 'gemini-1.5-pro-002', 'gemini-1.5-pro', 'gemini-2.0-pro-exp'];
+
+      const isDeprecated = deprecatedGemini.includes(initialModel) || deprecatedPro.includes(initialModel);
+
+      if (isDeprecated) {
+        if (deprecatedPro.includes(initialModel)) {
           initialModel = 'gemini-3-pro-preview';
         } else {
           initialModel = 'gemini-3-flash-preview';
@@ -238,6 +242,42 @@ const App: React.FC = () => {
     }
   };
 
+  const handleExportFromHistory = async (target: 'NOTION' | 'PDF', item: SavedItem) => {
+    try {
+      if (target === 'PDF') {
+        saveAsPDF(item.title, item.summary, item.mode);
+        showToast('PDF 파일이 생성되었습니다.', 'success');
+      } else if (target === 'NOTION') {
+        if (!notionToken || !notionDbId) {
+          showToast('Notion 설정이 필요합니다.', 'error');
+          setShowSettings(true);
+          return;
+        }
+
+        chrome.runtime.sendMessage({
+          action: "SAVE_TO_NOTION",
+          data: {
+            token: notionToken,
+            databaseId: notionDbId,
+            title: item.title,
+            content: item.summary,
+            url: item.clippings[0]?.sourceUrl || '',
+            mode: item.mode
+          }
+        }, (response) => {
+          if (response && response.success) {
+            showToast("노션 페이지에 성공적으로 저장되었습니다!", 'success');
+          } else {
+            showToast("노션 저장 실패: " + (response?.error || '알 수 없는 오류'), 'error');
+          }
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('내보내기 중 오류가 발생했습니다.', 'error');
+    }
+  };
+
   return (
     <div className="h-full bg-[#f8f9fa] text-[#212529] flex flex-col overflow-hidden relative">
       {/* Background Decor */}
@@ -346,8 +386,8 @@ const App: React.FC = () => {
                   className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all cursor-pointer"
                 >
                   <optgroup label="Google Gemini (3.0 Preview)">
-                    <option value="gemini-3-flash-preview">Gemini 3 Flash (최신 프리뷰: 최고 속도)</option>
-                    <option value="gemini-3-pro-preview">Gemini 3 Pro (최신 프리뷰: 강력한 추론)</option>
+                    <option value="gemini-3-flash-preview">Gemini 3.0 Flash (최신 프리뷰)</option>
+                    <option value="gemini-3-pro-preview">Gemini 3.0 Pro (최신 프리뷰)</option>
                   </optgroup>
                   <optgroup label="OpenAI (GPT)">
                     <option value="gpt-4o">GPT-4o (Omni)</option>
@@ -553,6 +593,7 @@ const App: React.FC = () => {
           <LibraryTab
             history={history}
             onDelete={handleDeleteHistory}
+            onExport={handleExportFromHistory}
           />
         )}
       </main>

@@ -42,12 +42,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "SAVE_TO_NOTION") {
         const { token, databaseId, title, content, url, mode } = request.data;
 
-        // 마크다운을 노션 블록으로 파싱하는 간단한 분석기
-        const parseToBlocks = (text: string, m: string) => {
+        // Database ID 정제 (URL 전체를 입력했을 경우 ID만 추출)
+        const cleanDbId = (id: string) => {
+            if (id.includes('/')) {
+                const parts = id.split('/');
+                const lastPart = parts[parts.length - 1];
+                return lastPart.split('?')[0]; // ?v= 등 쿼리 파라미터 제거
+            }
+            return id.trim();
+        };
+
+        const sanitizedDbId = cleanDbId(databaseId);
+
+        // 마크다운을 노션 블록으로 파싱
+        const parseToBlocks = (text: string, m: string, sourceUrl: string) => {
             const lines = text.split('\n');
             const blocks: any[] = [];
-            let currentList: any[] = [];
 
+            // 상단에 출처 URL 추가 (속성 불일치 대비)
+            if (sourceUrl) {
+                blocks.push({
+                    object: 'block',
+                    type: 'bookmark',
+                    bookmark: { url: sourceUrl }
+                });
+                blocks.push({ object: 'block', type: 'divider', divider: {} });
+            }
+
+            let currentList: any[] = [];
             const flushList = () => {
                 if (currentList.length > 0) {
                     currentList.forEach(item => blocks.push(item));
@@ -62,96 +84,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     return;
                 }
 
-                // Headers
+                // Headers, Lists, Quotes, etc. (Existing logic remains)
                 if (trimmed.startsWith('### ')) {
                     flushList();
-                    blocks.push({
-                        object: 'block',
-                        type: 'heading_3',
-                        heading_3: { rich_text: [{ type: 'text', text: { content: trimmed.replace('### ', '') } }] }
-                    });
+                    blocks.push({ object: 'block', type: 'heading_3', heading_3: { rich_text: [{ type: 'text', text: { content: trimmed.replace('### ', '') } }] } });
                 } else if (trimmed.startsWith('## ')) {
                     flushList();
                     const headerText = trimmed.replace('## ', '');
-                    // Notion 모드에서 특정 헤더는 Callout으로 변환
                     if (m === 'NOTION' && (headerText.includes('인사이트') || headerText.includes('Insight'))) {
-                        blocks.push({
-                            object: 'block',
-                            type: 'callout',
-                            callout: {
-                                icon: { type: 'emoji', emoji: '💡' },
-                                color: 'blue_background',
-                                rich_text: [{ type: 'text', text: { content: headerText } }]
-                            }
-                        });
+                        blocks.push({ object: 'block', type: 'callout', callout: { icon: { type: 'emoji', emoji: '💡' }, color: 'blue_background', rich_text: [{ type: 'text', text: { content: headerText } }] } });
                     } else {
-                        blocks.push({
-                            object: 'block',
-                            type: 'heading_2',
-                            heading_2: { rich_text: [{ type: 'text', text: { content: headerText } }] }
-                        });
+                        blocks.push({ object: 'block', type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: headerText } }] } });
                     }
                 } else if (trimmed.startsWith('# ')) {
                     flushList();
-                    blocks.push({
-                        object: 'block',
-                        type: 'heading_1',
-                        heading_1: { rich_text: [{ type: 'text', text: { content: trimmed.replace('# ', '') } }] }
-                    });
-                }
-                // Lists
-                else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-                    const listText = trimmed.replace(/^[-*]\s/, '');
-                    // CARD 모드에서는 리스트를 체크리스트로 표시하여 시각적 임팩트 부여
-                    if (m === 'CARD' || m === 'REPORT') {
-                        currentList.push({
-                            object: 'block',
-                            type: 'bulleted_list_item',
-                            bulleted_list_item: { rich_text: [{ type: 'text', text: { content: listText } }] }
-                        });
-                    } else {
-                        currentList.push({
-                            object: 'block',
-                            type: 'bulleted_list_item',
-                            bulleted_list_item: { rich_text: [{ type: 'text', text: { content: listText } }] }
-                        });
-                    }
-                }
-                // Blockquotes
-                else if (trimmed.startsWith('> ')) {
+                    blocks.push({ object: 'block', type: 'heading_1', heading_1: { rich_text: [{ type: 'text', text: { content: trimmed.replace('# ', '') } }] } });
+                } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                    currentList.push({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ type: 'text', text: { content: trimmed.replace(/^[-*]\s/, '') } }] } });
+                } else if (trimmed.startsWith('> ')) {
                     flushList();
-                    blocks.push({
-                        object: 'block',
-                        type: 'quote',
-                        quote: { rich_text: [{ type: 'text', text: { content: trimmed.replace('> ', '') } }] }
-                    });
-                }
-                // Checkbox (Action items)
-                else if (trimmed.startsWith('- [ ] ') || trimmed.startsWith('- [x] ')) {
+                    blocks.push({ object: 'block', type: 'quote', quote: { rich_text: [{ type: 'text', text: { content: trimmed.replace('> ', '') } }] } });
+                } else if (trimmed.startsWith('- [ ] ') || trimmed.startsWith('- [x] ')) {
                     flushList();
-                    blocks.push({
-                        object: 'block',
-                        type: 'to_do',
-                        to_do: {
-                            checked: trimmed.startsWith('- [x] '),
-                            rich_text: [{ type: 'text', text: { content: trimmed.replace(/- \[[ x]\] /, '') } }]
-                        }
-                    });
-                }
-                // Standard Paragraph
-                else {
+                    blocks.push({ object: 'block', type: 'to_do', to_do: { checked: trimmed.startsWith('- [x] '), rich_text: [{ type: 'text', text: { content: trimmed.replace(/- \[[ x]\] /, '') } }] } });
+                } else {
                     flushList();
-                    blocks.push({
-                        object: 'block',
-                        type: 'paragraph',
-                        paragraph: { rich_text: [{ type: 'text', text: { content: trimmed } }] }
-                    });
+                    blocks.push({ object: 'block', type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: trimmed } }] } });
                 }
             });
 
             flushList();
-
-            // 구분선 추가 (디자인 포인트)
             blocks.push({ object: 'block', type: 'divider', divider: {} });
             blocks.push({
                 object: 'block',
@@ -165,11 +127,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 }
             });
 
-            return blocks.slice(0, 100); // Notion child limit
+            return blocks.slice(0, 100);
         };
 
-        const notionBlocks = parseToBlocks(content, mode);
+        const notionBlocks = parseToBlocks(content, mode, url);
 
+        // 노션 API 호출 - 속성(properties)을 최소화하여 성공률 제고
         fetch("https://api.notion.com/v1/pages", {
             method: "POST",
             headers: {
@@ -178,33 +141,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 "Notion-Version": "2022-06-28"
             },
             body: JSON.stringify({
-                parent: { database_id: databaseId },
+                parent: { database_id: sanitizedDbId },
                 properties: {
+                    // 대부분의 DB에서 기본 제목 컬럼 명칭은 'title' 또는 '이름'이지만, 
+                    // API에서는 'title' 타입을 가진 속성을 자동으로 매칭하는 경우가 많음.
+                    // 만약 실패한다면 사용자가 DB 컬럼명을 '제목' 또는 'title'로 맞춰야 함.
                     title: {
-                        title: [
-                            {
-                                text: {
-                                    content: title
-                                }
-                            }
-                        ]
-                    },
-                    URL: {
-                        url: url
+                        title: [{ text: { content: title } }]
                     }
+                    // URL 속성은 DB마다 이름이 다를 수 있어 제거하고 본문에 Bookmark로 삽입
                 },
                 children: notionBlocks
             })
         })
-            .then(response => {
+            .then(async response => {
+                const data = await response.json();
                 if (!response.ok) {
-                    return response.json().then(err => { throw new Error(err.message || response.statusText); });
+                    let errorMsg = data.message || response.statusText;
+                    if (data.code === 'object_not_found') {
+                        errorMsg = "데이터베이스를 찾을 수 없습니다. (ID 확인 및 통합 기능 공유 여부 확인 필요)";
+                    } else if (data.code === 'unauthorized') {
+                        errorMsg = "토큰이 유효하지 않습니다.";
+                    }
+                    throw new Error(errorMsg);
                 }
-                return response.json();
+                return data;
             })
             .then(data => sendResponse({ success: true, data }))
             .catch(error => sendResponse({ success: false, error: error.message }));
 
-        return true; // 비동기 응답을 위해 true 반환
+        return true;
+    }
+
+    if (request.action === "DOWNLOAD_FILE") {
+        const { url, filename } = request.data;
+        chrome.downloads.download({
+            url: url,
+            filename: filename,
+            saveAs: true // 폴더 선택 창 표시
+        }, (downloadId) => {
+            if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+                sendResponse({ success: true, downloadId });
+            }
+        });
+        return true;
     }
 });
