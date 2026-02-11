@@ -34,7 +34,7 @@ const CaptureTab: React.FC<CaptureTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
       {/* Capture Area */}
       <section className="premium-card p-6">
         <div className="flex items-center justify-between mb-5">

@@ -9,6 +9,11 @@
         "scripting",
         "contextMenus"
     ],
+    "host_permissions": [
+        "<all_urls>",
+        "https://api.openai.com/*",
+        "https://api.anthropic.com/*"
+    ],
     "action": {
         "default_popup": "popup.html"
     },

@@ -4,8 +4,8 @@ import CaptureTab from './components/CaptureTab';
 import LibraryTab from './components/LibraryTab';
 import PreviewModal from './components/PreviewModal';
 import Toast from './components/Toast';
-import { Clipping, SummaryMode, SavedItem } from './types';
-import { generateAIContent } from './services/geminiService';
+import { Clipping, SummaryMode, SavedItem, AIModel } from './types';
+import { generateAIContent } from './services/aiService';
 import { saveAsPDF } from './services/pdfService';
 import { Icons } from './constants';
 
@@ -13,14 +13,24 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'capture' | 'history'>('capture');
   const [clippings, setClippings] = useState<Clipping[]>([]);
   const [history, setHistory] = useState<SavedItem[]>([]);
+  const isLoaded = React.useRef(false);
   const [apiKey, setApiKey] = useState('');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [claudeApiKey, setClaudeApiKey] = useState('');
   const [notionToken, setNotionToken] = useState('');
   const [notionDbId, setNotionDbId] = useState('');
   const [showFloatingButton, setShowFloatingButton] = useState(true);
+  const [aiModel, setAiModel] = useState<AIModel>('gemini-3-flash-preview');
   const [showSettings, setShowSettings] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewData, setPreviewData] = useState<{ mode: SummaryMode; content: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Password visibility states
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [showOpenAIKey, setShowOpenAIKey] = useState(false);
+  const [showClaudeKey, setShowClaudeKey] = useState(false);
+  const [showNotionKey, setShowNotionKey] = useState(false);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
@@ -30,14 +40,30 @@ const App: React.FC = () => {
   // Load history & clippings & apiKey from chrome.storage
   useEffect(() => {
     // 초기 로드
-    chrome.storage.local.get(['history', 'clippings', 'apiKey', 'notionToken', 'notionDbId'], (result) => {
+    chrome.storage.local.get(['history', 'clippings', 'apiKey', 'openaiApiKey', 'claudeApiKey', 'notionToken', 'notionDbId', 'showFloatingButton', 'aiModel'], (result) => {
       if (result.history) setHistory(result.history);
       if (result.clippings) setClippings(result.clippings);
       if (result.apiKey) setApiKey(result.apiKey);
-      if (result.notionToken) setNotionToken(result.notionToken);
+      if (result.openaiApiKey) setOpenaiApiKey(result.openaiApiKey);
+      if (result.claudeApiKey) setClaudeApiKey(result.claudeApiKey);
       if (result.notionToken) setNotionToken(result.notionToken);
       if (result.notionDbId) setNotionDbId(result.notionDbId);
       if (result.showFloatingButton !== undefined) setShowFloatingButton(result.showFloatingButton);
+
+      let initialModel = (result.aiModel as string) || 'gemini-3-flash-preview';
+      // Migration for deprecated or incorrect model names
+      const deprecatedModels = ['gemini-1.5-flash', 'gemini-1.5-flash-001', 'gemini-1.5-pro-001', 'gemini-pro', 'gemini-1.5-flash-latest', 'gemini-2.0-flash-lite-preview-02-05', 'gemini-1.5-pro-002', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-3-flash', 'gemini-3-pro'];
+      if (deprecatedModels.includes(initialModel)) {
+        if (initialModel.includes('pro')) {
+          initialModel = 'gemini-3-pro-preview';
+        } else {
+          initialModel = 'gemini-3-flash-preview';
+        }
+        chrome.storage.local.set({ aiModel: initialModel });
+      }
+      console.log(`[Storage] Loaded AI Model: ${initialModel}`);
+      setAiModel(initialModel as AIModel);
+      isLoaded.current = true;
     });
 
     // 변경 사항 감지
@@ -45,9 +71,12 @@ const App: React.FC = () => {
       if (changes.history) setHistory(changes.history.newValue || []);
       if (changes.clippings) setClippings(changes.clippings.newValue || []);
       if (changes.apiKey) setApiKey(changes.apiKey.newValue || '');
+      if (changes.openaiApiKey) setOpenaiApiKey(changes.openaiApiKey.newValue || '');
+      if (changes.claudeApiKey) setClaudeApiKey(changes.claudeApiKey.newValue || '');
       if (changes.notionToken) setNotionToken(changes.notionToken.newValue || '');
       if (changes.notionDbId) setNotionDbId(changes.notionDbId.newValue || '');
       if (changes.showFloatingButton) setShowFloatingButton(changes.showFloatingButton.newValue);
+      if (changes.aiModel) setAiModel(changes.aiModel.newValue);
     };
 
     chrome.storage.onChanged.addListener(handleStorageChange);
@@ -55,15 +84,27 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    chrome.storage.local.set({ history });
+    if (isLoaded.current) {
+      chrome.storage.local.set({ history });
+    }
   }, [history]);
+
+  const handleDeleteHistory = (id: string) => {
+    if (window.confirm('정말로 이 기록을 삭제하시겠습니까?')) {
+      setHistory(prev => prev.filter(item => item.id !== id));
+      showToast('기록이 삭제되었습니다.', 'info');
+    }
+  };
 
   const handleSaveSettings = () => {
     chrome.storage.local.set({
       apiKey,
+      openaiApiKey,
+      claudeApiKey,
       notionToken,
       notionDbId,
-      showFloatingButton
+      showFloatingButton,
+      aiModel
     });
     setShowSettings(false);
     showToast('설정이 저장되었습니다.', 'success');
@@ -91,19 +132,29 @@ const App: React.FC = () => {
   const handleStartAI = async (mode: SummaryMode, instruction: string) => {
     if (clippings.length === 0) return;
 
-    if (!apiKey && !process.env.API_KEY) {
-      showToast("Gemini API Key가 필요합니다. 설정(⚙️)에서 입력해주세요.", 'error');
+    const isGemini = aiModel.startsWith('gemini');
+    const isOpenAI = aiModel.startsWith('gpt');
+    const isClaude = aiModel.startsWith('claude');
+
+    let currentKey = '';
+    if (isGemini) currentKey = apiKey || process.env.API_KEY || '';
+    if (isOpenAI) currentKey = openaiApiKey;
+    if (isClaude) currentKey = claudeApiKey;
+
+    if (!currentKey) {
+      const providerName = isGemini ? 'Gemini' : isOpenAI ? 'OpenAI' : 'Anthropic';
+      showToast(`${providerName} API Key가 필요합니다. 설정(⚙️)에서 입력해주세요.`, 'error');
       setShowSettings(true);
       return;
     }
 
     setIsProcessing(true);
     try {
-      const keyToUse = apiKey || process.env.API_KEY;
-      const result = await generateAIContent(mode, clippings, instruction, keyToUse);
+      const result = await generateAIContent(mode, clippings, instruction, currentKey, aiModel);
       setPreviewData({ mode, content: result });
     } catch (err) {
-      showToast("AI 처리 중 오류가 발생했습니다. API 키를 확인해주세요.", 'error');
+      const errorMessage = err instanceof Error ? err.message : "AI 처리 중 오류가 발생했습니다.";
+      showToast(errorMessage, 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -128,7 +179,7 @@ const App: React.FC = () => {
     });
   };
 
-  const handleFinalSave = async (target: 'NOTION' | 'PDF', content: string, title: string) => {
+  const handleFinalSave = async (target: 'NOTION' | 'PDF' | 'HISTORY', content: string, title: string) => {
     if (!previewData) return;
 
     const newItem: SavedItem = {
@@ -144,9 +195,9 @@ const App: React.FC = () => {
 
     try {
       if (target === 'PDF') {
-        saveAsPDF(title, content);
+        saveAsPDF(title, content, previewData.mode);
         showToast('PDF 파일이 생성되었습니다.', 'success');
-      } else {
+      } else if (target === 'NOTION') {
         if (!notionToken || !notionDbId) {
           showToast('Notion 설정이 필요합니다. 설정 메뉴를 확인해주세요.', 'error');
           setShowSettings(true);
@@ -160,7 +211,8 @@ const App: React.FC = () => {
             databaseId: notionDbId,
             title,
             content,
-            url: clippings[0]?.sourceUrl || ''
+            url: clippings[0]?.sourceUrl || '',
+            mode: previewData.mode
           }
         }, (response) => {
           if (response && response.success) {
@@ -172,7 +224,9 @@ const App: React.FC = () => {
             showToast("노션 저장 실패: " + (response?.error || '알 수 없는 오류'), 'error');
           }
         });
-        return; // Async handling above
+        return;
+      } else if (target === 'HISTORY') {
+        showToast('기록보관함에 저장되었습니다.', 'success');
       }
 
       setHistory(prev => [newItem, ...prev]);
@@ -201,7 +255,7 @@ const App: React.FC = () => {
       )}
 
       {/* Navigation Header */}
-      <header className="sticky top-0 z-40 glass-morphism px-6 py-4 flex items-center justify-between transition-all duration-300">
+      <header className={`sticky top-0 z-40 glass-morphism px-6 py-4 flex items-center justify-between transition-all duration-300 ${isProcessing ? 'pointer-events-none opacity-50' : ''}`}>
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 transform hover:scale-105 transition-transform duration-300">
             <Icons.Clip />
@@ -214,7 +268,8 @@ const App: React.FC = () => {
 
         <div className="flex gap-3">
           <button
-            onClick={() => setShowSettings(!showSettings)}
+            onClick={() => !isProcessing && setShowSettings(!showSettings)}
+            disabled={isProcessing}
             className={`p-2.5 rounded-xl transition-all duration-300 flex items-center justify-center ${showSettings ? 'bg-indigo-50 text-indigo-600 rotate-180 shadow-inner' : 'text-gray-400 hover:bg-white hover:text-gray-600 hover:shadow-sm'}`}
             title="설정"
           >
@@ -222,7 +277,8 @@ const App: React.FC = () => {
           </button>
           <nav className="flex bg-gray-100/50 p-1 rounded-xl backdrop-blur-sm">
             <button
-              onClick={() => setActiveTab('capture')}
+              onClick={() => !isProcessing && setActiveTab('capture')}
+              disabled={isProcessing}
               className={`px-5 py-2 rounded-lg text-xs font-bold transition-all duration-300 ${activeTab === 'capture'
                 ? 'bg-white text-indigo-600 shadow-sm scale-100'
                 : 'text-gray-400 hover:text-gray-600 scale-95'
@@ -231,7 +287,8 @@ const App: React.FC = () => {
               수집
             </button>
             <button
-              onClick={() => setActiveTab('history')}
+              onClick={() => !isProcessing && setActiveTab('history')}
+              disabled={isProcessing}
               className={`px-5 py-2 rounded-lg text-xs font-bold transition-all duration-300 ${activeTab === 'history'
                 ? 'bg-white text-indigo-600 shadow-sm scale-100'
                 : 'text-gray-400 hover:text-gray-600 scale-95'
@@ -243,30 +300,155 @@ const App: React.FC = () => {
         </div>
       </header>
 
+      {/* Loading Overlay */}
+      {isProcessing && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center glass-morphism animate-in fade-in duration-500">
+          <div className="relative mb-8">
+            {/* Outer Glow */}
+            <div className="absolute inset-0 bg-indigo-500 rounded-full blur-[40px] opacity-20 animate-pulse-glow"></div>
+
+            {/* Spinning Rings */}
+            <div className="w-24 h-24 border-4 border-indigo-100 rounded-full"></div>
+            <div className="absolute top-0 left-0 w-24 h-24 border-t-4 border-indigo-600 rounded-full animate-spin"></div>
+            <div className="absolute top-2 left-2 w-20 h-20 border-b-4 border-purple-500 rounded-full animate-spin-slow opacity-60"></div>
+
+            {/* Center Icon */}
+            <div className="absolute inset-0 flex items-center justify-center text-indigo-600 scale-125 animate-float">
+              <Icons.Clip />
+            </div>
+          </div>
+
+          <div className="text-center space-y-3 px-10">
+            <h3 className="text-xl font-black text-gray-900 tracking-tight animate-in slide-in-from-bottom-2 duration-500">AI 분석 진행 중...</h3>
+            <p className="text-sm text-gray-500 font-medium leading-relaxed">
+              최첨단 Gemini 3.0 모델이 수집된 텍스트를<br />
+              <span className="text-indigo-600 font-bold">깊이 있게 분석하고 구조화</span>하고 있습니다.
+            </p>
+          </div>
+
+          <div className="mt-12 w-48 h-1.5 bg-gray-100 rounded-full overflow-hidden shadow-inner">
+            <div className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 w-full rounded-full animate-shimmer scale-x-[0.6] origin-left"></div>
+          </div>
+        </div>
+      )}
+
+
       {/* Settings Panel */}
       {showSettings && (
         <div className="bg-white border-b border-gray-100 px-6 py-4 animate-in slide-in-from-top-2 max-h-[480px] overflow-y-auto custom-scrollbar shadow-inner">
           <div className="flex flex-col gap-3">
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Gemini API 키</label>
-              <input
-                type="password"
-                placeholder="API 키를 입력하세요"
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-              />
+              <label className="block text-xs font-bold text-gray-700 mb-1">AI 모델 선택</label>
+              <div className="relative">
+                <select
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm appearance-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all cursor-pointer"
+                >
+                  <optgroup label="Google Gemini (3.0 Preview)">
+                    <option value="gemini-3-flash-preview">Gemini 3 Flash (최신 프리뷰: 최고 속도)</option>
+                    <option value="gemini-3-pro-preview">Gemini 3 Pro (최신 프리뷰: 강력한 추론)</option>
+                  </optgroup>
+                  <optgroup label="OpenAI (GPT)">
+                    <option value="gpt-4o">GPT-4o (Omni)</option>
+                    <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                  </optgroup>
+                  <optgroup label="Anthropic (Claude)">
+                    <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                  </optgroup>
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                </div>
+              </div>
             </div>
+
+            {aiModel.startsWith('gemini') && (
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Gemini API 키</label>
+                <div className="relative">
+                  <input
+                    type={showGeminiKey ? "text" : "password"}
+                    placeholder="Gemini API 키를 입력하세요"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm pr-10"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                  <button
+                    onClick={() => setShowGeminiKey(!showGeminiKey)}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600"
+                    tabIndex={-1}
+                  >
+                    {showGeminiKey ? <Icons.EyeOff /> : <Icons.Eye />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {aiModel.startsWith('gpt') && (
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">OpenAI API 키</label>
+                <div className="relative">
+                  <input
+                    type={showOpenAIKey ? "text" : "password"}
+                    placeholder="sk-..."
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm pr-10"
+                    value={openaiApiKey}
+                    onChange={(e) => setOpenaiApiKey(e.target.value)}
+                  />
+                  <button
+                    onClick={() => setShowOpenAIKey(!showOpenAIKey)}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600"
+                    tabIndex={-1}
+                  >
+                    {showOpenAIKey ? <Icons.EyeOff /> : <Icons.Eye />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {aiModel.startsWith('claude') && (
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Anthropic API 키</label>
+                <div className="relative">
+                  <input
+                    type={showClaudeKey ? "text" : "password"}
+                    placeholder="sk-ant-..."
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm pr-10"
+                    value={claudeApiKey}
+                    onChange={(e) => setClaudeApiKey(e.target.value)}
+                  />
+                  <button
+                    onClick={() => setShowClaudeKey(!showClaudeKey)}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600"
+                    tabIndex={-1}
+                  >
+                    {showClaudeKey ? <Icons.EyeOff /> : <Icons.Eye />}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-1">Notion 통합 토큰</label>
-              <input
-                type="password"
-                placeholder="secret_... (Notion 토큰)"
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                value={notionToken}
-                onChange={(e) => setNotionToken(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  type={showNotionKey ? "text" : "password"}
+                  placeholder="secret_... (Notion 토큰)"
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm pr-10"
+                  value={notionToken}
+                  onChange={(e) => setNotionToken(e.target.value)}
+                />
+                <button
+                  onClick={() => setShowNotionKey(!showNotionKey)}
+                  className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600"
+                  tabIndex={-1}
+                >
+                  {showNotionKey ? <Icons.EyeOff /> : <Icons.Eye />}
+                </button>
+              </div>
             </div>
 
             <div>
@@ -318,6 +500,22 @@ const App: React.FC = () => {
               </div>
 
               <div className="flex items-start gap-2 border-t border-gray-200 pt-2">
+                <span className="text-green-500 mt-0.5">Op</span>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-700">OpenAI API 키 발급</p>
+                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-[10px] text-indigo-600 underline hover:text-indigo-800">OpenAI 키 발급 →</a>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 border-t border-gray-200 pt-2">
+                <span className="text-orange-500 mt-0.5">An</span>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-700">Anthropic API 키 발급</p>
+                  <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" className="text-[10px] text-indigo-600 underline hover:text-indigo-800">Anthropic 키 발급 →</a>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 border-t border-gray-200 pt-2">
                 <span className="text-indigo-500 mt-0.5">②</span>
                 <div>
                   <p className="text-[11px] font-bold text-gray-700">Notion 연동</p>
@@ -338,7 +536,8 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
+      )
+      }
 
       <main className="flex-1 overflow-y-auto custom-scrollbar p-6 relative z-10 space-y-6">
         {activeTab === 'capture' ? (
@@ -351,31 +550,38 @@ const App: React.FC = () => {
             isProcessing={isProcessing}
           />
         ) : (
-          <LibraryTab history={history} />
+          <LibraryTab
+            history={history}
+            onDelete={handleDeleteHistory}
+          />
         )}
       </main>
 
       {/* Floating Action Tooltip Simulator */}
-      {clippings.length > 0 && activeTab === 'capture' && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-indigo-900 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-10 z-50">
-          <span className="text-xs font-bold">{clippings.length}개의 문장 선택됨</span>
-          <div className="h-4 w-[1px] bg-white/20"></div>
-          <button onClick={() => setClippings([])} className="text-xs font-medium text-indigo-200 hover:text-white transition-colors">초기화</button>
-        </div>
-      )}
+      {
+        clippings.length > 0 && activeTab === 'capture' && (
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-indigo-900 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-10 z-50">
+            <span className="text-xs font-bold">{clippings.length}개의 문장 선택됨</span>
+            <div className="h-4 w-[1px] bg-white/20"></div>
+            <button onClick={() => setClippings([])} className="text-xs font-medium text-indigo-200 hover:text-white transition-colors">초기화</button>
+          </div>
+        )
+      }
 
       {/* Preview Modal */}
-      {previewData && (
-        <PreviewModal
-          mode={previewData.mode}
-          content={previewData.content}
-          clippings={clippings}
-          onClose={() => setPreviewData(null)}
-          onSave={handleFinalSave}
-        />
-      )}
+      {
+        previewData && (
+          <PreviewModal
+            mode={previewData.mode}
+            content={previewData.content}
+            clippings={clippings}
+            onClose={() => setPreviewData(null)}
+            onSave={handleFinalSave}
+          />
+        )
+      }
 
-    </div>
+    </div >
   );
 };
 

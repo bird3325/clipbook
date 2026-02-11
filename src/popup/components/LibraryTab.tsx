@@ -5,9 +5,10 @@ import { Icons } from '../constants';
 
 interface LibraryTabProps {
   history: SavedItem[];
+  onDelete: (id: string) => void;
 }
 
-const LibraryTab: React.FC<LibraryTabProps> = ({ history }) => {
+const LibraryTab: React.FC<LibraryTabProps> = ({ history, onDelete }) => {
   const [search, setSearch] = useState('');
 
   const filteredHistory = history.filter(item =>
@@ -16,7 +17,7 @@ const LibraryTab: React.FC<LibraryTabProps> = ({ history }) => {
   );
 
   return (
-    <div className="flex flex-col gap-6 animate-in fade-in duration-500">
+    <div className="flex flex-col gap-6 animate-in fade-in duration-500 pb-10">
       <div className="relative">
         <input
           type="text"
@@ -39,17 +40,35 @@ const LibraryTab: React.FC<LibraryTabProps> = ({ history }) => {
                 const el = document.getElementById(`summary-${item.id}`);
                 if (el) el.classList.toggle('line-clamp-2');
               }}
-              className="premium-card p-5 cursor-pointer group hover:border-indigo-300"
+              className="premium-card p-5 cursor-pointer group hover:border-indigo-300 relative"
             >
-              <div className="flex justify-between items-start mb-3">
-                <span className="text-[10px] font-bold tracking-wider text-indigo-600 uppercase px-2 py-1 bg-indigo-50 rounded-md border border-indigo-100">
-                  {item.mode}
-                </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(item.id);
+                }}
+                className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all opacity-0 group-hover:opacity-100"
+                title="삭제"
+              >
+                ✕
+              </button>
+
+              <div className="flex justify-between items-start mb-3 pr-8">
+                <div className="flex gap-2">
+                  <span className="text-[10px] font-bold tracking-wider text-indigo-600 uppercase px-2 py-1 bg-indigo-50 rounded-md border border-indigo-100">
+                    {item.mode}
+                  </span>
+                  {item.target && (
+                    <span className="text-[10px] font-bold tracking-wider text-gray-600 uppercase px-2 py-1 bg-gray-50 rounded-md border border-gray-100">
+                      via {item.target}
+                    </span>
+                  )}
+                </div>
                 <span className="text-[10px] text-gray-400 font-medium">
                   {new Date(item.timestamp).toLocaleDateString()}
                 </span>
               </div>
-              <h3 className="font-bold text-gray-800 mb-2 text-base group-hover:text-indigo-600 transition-colors">
+              <h3 className="font-bold text-gray-800 mb-2 text-base group-hover:text-indigo-600 transition-colors line-clamp-1">
                 {item.title}
               </h3>
               <p id={`summary-${item.id}`} className="text-sm text-gray-600 line-clamp-2 leading-relaxed transition-all">

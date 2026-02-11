@@ -8,7 +8,7 @@ interface PreviewModalProps {
   content: string;
   clippings: Clipping[];
   onClose: () => void;
-  onSave: (target: 'NOTION' | 'PDF', editedContent: string, title: string) => void;
+  onSave: (target: 'NOTION' | 'PDF' | 'HISTORY', editedContent: string, title: string, mode: SummaryMode) => void;
 }
 
 const PreviewModal: React.FC<PreviewModalProps> = ({ mode, content, clippings, onClose, onSave }) => {
@@ -16,10 +16,19 @@ const PreviewModal: React.FC<PreviewModalProps> = ({ mode, content, clippings, o
   const [title, setTitle] = useState(`${mode} 정리본 - ${new Date().toLocaleDateString()}`);
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleSaveAction = (target: 'NOTION' | 'PDF') => {
+  const getModeTheme = (m: SummaryMode) => {
+    switch (m) {
+      case SummaryMode.REPORT: return "from-blue-700 to-indigo-900";
+      case SummaryMode.EMAIL: return "from-slate-700 to-slate-900";
+      case SummaryMode.CARD: return "from-purple-600 to-pink-600";
+      default: return "from-gray-900 to-gray-700";
+    }
+  };
+
+  const handleSaveAction = (target: 'NOTION' | 'PDF' | 'HISTORY') => {
     setIsSaving(true);
     setTimeout(() => {
-      onSave(target, editedContent, title);
+      onSave(target, editedContent, title, mode);
       setIsSaving(false);
     }, 1500);
   };
@@ -30,7 +39,9 @@ const PreviewModal: React.FC<PreviewModalProps> = ({ mode, content, clippings, o
         {/* Header */}
         <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white/50 backdrop-blur-md sticky top-0 z-10">
           <div>
-            <h2 className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">정리 결과 미리보기</h2>
+            <h2 className={`text-xl font-bold bg-gradient-to-r ${getModeTheme(mode)} bg-clip-text text-transparent transition-all duration-500`}>
+              {mode} 정리 결과 미리보기
+            </h2>
             <p className="text-sm text-gray-500 font-medium tracking-wide">내용을 검토하고 저장 위치를 선택하세요.</p>
           </div>
           <button
@@ -75,7 +86,14 @@ const PreviewModal: React.FC<PreviewModalProps> = ({ mode, content, clippings, o
         </div>
 
         {/* Footer */}
-        <div className="p-6 bg-gray-50 border-t flex flex-col sm:flex-row gap-3">
+        <div className="p-6 bg-gray-50 border-t grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            onClick={() => handleSaveAction('HISTORY')}
+            disabled={isSaving}
+            className="flex-1 flex items-center justify-center gap-2 py-4 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-all disabled:opacity-50"
+          >
+            <div className="text-indigo-600"><Icons.History /></div> 기록보관함 저장
+          </button>
           <button
             onClick={() => handleSaveAction('NOTION')}
             disabled={isSaving}
@@ -95,7 +113,7 @@ const PreviewModal: React.FC<PreviewModalProps> = ({ mode, content, clippings, o
         {isSaving && (
           <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-[60]">
             <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-            <p className="font-bold text-gray-800">문서를 전송 중입니다...</p>
+            <p className="font-bold text-gray-800 text-sm">기록을 안전하게 저장 중입니다...</p>
           </div>
         )}
       </div>

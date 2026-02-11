@@ -6,6 +6,13 @@ export enum SummaryMode {
   CARD = 'CARD'
 }
 
+export type AIModel =
+  | 'gemini-3-flash-preview'
+  | 'gemini-3-pro-preview'
+  | 'gpt-4o'
+  | 'gpt-4-turbo'
+  | 'claude-3-5-sonnet';
+
 export interface Clipping {
   id: string;
   text: string;
@@ -19,7 +26,7 @@ export interface SavedItem {
   summary: string;
   clippings: Clipping[];
   mode: SummaryMode;
-  target: 'NOTION' | 'PDF';
+  target: 'NOTION' | 'PDF' | 'HISTORY';
   timestamp: number;
   collection: string;
 }

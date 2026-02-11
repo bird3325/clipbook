@@ -40,7 +40,135 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // 메시지 리스너 (Notion API 호출 등)
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "SAVE_TO_NOTION") {
-        const { token, databaseId, title, content, url } = request.data;
+        const { token, databaseId, title, content, url, mode } = request.data;
+
+        // 마크다운을 노션 블록으로 파싱하는 간단한 분석기
+        const parseToBlocks = (text: string, m: string) => {
+            const lines = text.split('\n');
+            const blocks: any[] = [];
+            let currentList: any[] = [];
+
+            const flushList = () => {
+                if (currentList.length > 0) {
+                    currentList.forEach(item => blocks.push(item));
+                    currentList = [];
+                }
+            };
+
+            lines.forEach((line) => {
+                const trimmed = line.trim();
+                if (!trimmed) {
+                    flushList();
+                    return;
+                }
+
+                // Headers
+                if (trimmed.startsWith('### ')) {
+                    flushList();
+                    blocks.push({
+                        object: 'block',
+                        type: 'heading_3',
+                        heading_3: { rich_text: [{ type: 'text', text: { content: trimmed.replace('### ', '') } }] }
+                    });
+                } else if (trimmed.startsWith('## ')) {
+                    flushList();
+                    const headerText = trimmed.replace('## ', '');
+                    // Notion 모드에서 특정 헤더는 Callout으로 변환
+                    if (m === 'NOTION' && (headerText.includes('인사이트') || headerText.includes('Insight'))) {
+                        blocks.push({
+                            object: 'block',
+                            type: 'callout',
+                            callout: {
+                                icon: { type: 'emoji', emoji: '💡' },
+                                color: 'blue_background',
+                                rich_text: [{ type: 'text', text: { content: headerText } }]
+                            }
+                        });
+                    } else {
+                        blocks.push({
+                            object: 'block',
+                            type: 'heading_2',
+                            heading_2: { rich_text: [{ type: 'text', text: { content: headerText } }] }
+                        });
+                    }
+                } else if (trimmed.startsWith('# ')) {
+                    flushList();
+                    blocks.push({
+                        object: 'block',
+                        type: 'heading_1',
+                        heading_1: { rich_text: [{ type: 'text', text: { content: trimmed.replace('# ', '') } }] }
+                    });
+                }
+                // Lists
+                else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                    const listText = trimmed.replace(/^[-*]\s/, '');
+                    // CARD 모드에서는 리스트를 체크리스트로 표시하여 시각적 임팩트 부여
+                    if (m === 'CARD' || m === 'REPORT') {
+                        currentList.push({
+                            object: 'block',
+                            type: 'bulleted_list_item',
+                            bulleted_list_item: { rich_text: [{ type: 'text', text: { content: listText } }] }
+                        });
+                    } else {
+                        currentList.push({
+                            object: 'block',
+                            type: 'bulleted_list_item',
+                            bulleted_list_item: { rich_text: [{ type: 'text', text: { content: listText } }] }
+                        });
+                    }
+                }
+                // Blockquotes
+                else if (trimmed.startsWith('> ')) {
+                    flushList();
+                    blocks.push({
+                        object: 'block',
+                        type: 'quote',
+                        quote: { rich_text: [{ type: 'text', text: { content: trimmed.replace('> ', '') } }] }
+                    });
+                }
+                // Checkbox (Action items)
+                else if (trimmed.startsWith('- [ ] ') || trimmed.startsWith('- [x] ')) {
+                    flushList();
+                    blocks.push({
+                        object: 'block',
+                        type: 'to_do',
+                        to_do: {
+                            checked: trimmed.startsWith('- [x] '),
+                            rich_text: [{ type: 'text', text: { content: trimmed.replace(/- \[[ x]\] /, '') } }]
+                        }
+                    });
+                }
+                // Standard Paragraph
+                else {
+                    flushList();
+                    blocks.push({
+                        object: 'block',
+                        type: 'paragraph',
+                        paragraph: { rich_text: [{ type: 'text', text: { content: trimmed } }] }
+                    });
+                }
+            });
+
+            flushList();
+
+            // 구분선 추가 (디자인 포인트)
+            blocks.push({ object: 'block', type: 'divider', divider: {} });
+            blocks.push({
+                object: 'block',
+                type: 'paragraph',
+                paragraph: {
+                    rich_text: [{
+                        type: 'text',
+                        text: { content: `Generated by ClipBook AI (${m} Mode)` },
+                        annotations: { italic: true, color: 'gray' }
+                    }]
+                }
+            });
+
+            return blocks.slice(0, 100); // Notion child limit
+        };
+
+        const notionBlocks = parseToBlocks(content, mode);
 
         fetch("https://api.notion.com/v1/pages", {
             method: "POST",
@@ -65,22 +193,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         url: url
                     }
                 },
-                children: [
-                    {
-                        object: "block",
-                        type: "paragraph",
-                        paragraph: {
-                            rich_text: [
-                                {
-                                    type: "text",
-                                    text: {
-                                        content: content.substring(0, 2000) // Notion block limit
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                ]
+                children: notionBlocks
             })
         })
             .then(response => {
