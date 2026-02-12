@@ -98,17 +98,18 @@ export const saveAsPDF = async (title: string, content: string, mode: SummaryMod
       heightLeft -= pageHeight;
     }
 
-    // 6. 백엔드 스크립트를 통한 다운로드 처리 (폴더 선택 창 표시 및 파일명 제안 안정성 확보)
-    const pdfDataUri = pdf.output('datauristring');
+    // 6. 백엔드 스크립트를 통한 다운로드 처리 (파일명 제안 안정성 확보를 위해 base64 파트로 전송)
+    const pdfDataUri = pdf.output('datauristring') as string;
+    const pdfBase64 = pdfDataUri.split(',')[1];
 
-    // 파일명 산정: 시스템 금지 문자 제거 및 최대 길이 제한
-    const safeTitle = title.replace(/[/\\?%*:|"<>]/g, '').trim().substring(0, 100) || 'ClipBook_Report';
+    // 파일명 산정: 시스템 금지 문자 제거 및 앞뒤 공백 제거
+    const safeTitle = title.replace(/[/\\?%*:|"<>]/g, '').trim() || 'ClipBook_Report';
     const fileName = `${safeTitle}.pdf`;
 
     chrome.runtime.sendMessage({
       action: "DOWNLOAD_FILE",
       data: {
-        url: pdfDataUri,
+        base64: pdfBase64,
         filename: fileName
       }
     }, (response) => {

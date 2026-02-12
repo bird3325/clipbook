@@ -42,14 +42,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "SAVE_TO_NOTION") {
         const { token, databaseId, title, content, url, mode } = request.data;
 
-        // Database ID 정제 (URL 전체를 입력했을 경우 ID만 추출)
-        const cleanDbId = (id: string) => {
-            if (id.includes('/')) {
-                const parts = id.split('/');
-                const lastPart = parts[parts.length - 1];
-                return lastPart.split('?')[0]; // ?v= 등 쿼리 파라미터 제거
+        // Database ID 정제 (URL에서 32자리 UUID 추출 강화)
+        const cleanDbId = (id: string): string => {
+            const trimmed = id.trim();
+            // 32자리 hex ID 패턴 (하이픈 제외)
+            const idPattern = /[a-f0-9]{32}/i;
+            const match = trimmed.match(idPattern);
+            if (match) return match[0];
+
+            // 만약 하이픈이 포함된 포맷인 경우 대비
+            if (trimmed.includes('-')) {
+                const hyphenIdPattern = /[a-f0-9]{8}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{4}-?[a-f0-9]{12}/i;
+                const hMatch = trimmed.match(hyphenIdPattern);
+                if (hMatch) return hMatch[0].replace(/-/g, '');
             }
-            return id.trim();
+
+            return trimmed;
         };
 
         const sanitizedDbId = cleanDbId(databaseId);
@@ -84,7 +92,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     return;
                 }
 
-                // Headers, Lists, Quotes, etc. (Existing logic remains)
                 if (trimmed.startsWith('### ')) {
                     flushList();
                     blocks.push({ object: 'block', type: 'heading_3', heading_3: { rich_text: [{ type: 'text', text: { content: trimmed.replace('### ', '') } }] } });
@@ -130,56 +137,103 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return blocks.slice(0, 100);
         };
 
-        const notionBlocks = parseToBlocks(content, mode, url);
-
-        // 노션 API 호출 - 속성(properties)을 최소화하여 성공률 제고
-        fetch("https://api.notion.com/v1/pages", {
-            method: "POST",
+        // 1단계: 데이터베이스 정보 조회 (스키마 확인 및 연결 검증)
+        fetch(`https://api.notion.com/v1/databases/${sanitizedDbId}`, {
+            method: "GET",
             headers: {
                 "Authorization": `Bearer ${token}`,
-                "Content-Type": "application/json",
                 "Notion-Version": "2022-06-28"
-            },
-            body: JSON.stringify({
-                parent: { database_id: sanitizedDbId },
-                properties: {
-                    // 대부분의 DB에서 기본 제목 컬럼 명칭은 'title' 또는 '이름'이지만, 
-                    // API에서는 'title' 타입을 가진 속성을 자동으로 매칭하는 경우가 많음.
-                    // 만약 실패한다면 사용자가 DB 컬럼명을 '제목' 또는 'title'로 맞춰야 함.
-                    title: {
-                        title: [{ text: { content: title } }]
-                    }
-                    // URL 속성은 DB마다 이름이 다를 수 있어 제거하고 본문에 Bookmark로 삽입
-                },
-                children: notionBlocks
-            })
+            }
         })
-            .then(async response => {
-                const data = await response.json();
-                if (!response.ok) {
-                    let errorMsg = data.message || response.statusText;
-                    if (data.code === 'object_not_found') {
-                        errorMsg = "데이터베이스를 찾을 수 없습니다. (ID 확인 및 통합 기능 공유 여부 확인 필요)";
-                    } else if (data.code === 'unauthorized') {
+            .then(async dbResponse => {
+                const dbData = await dbResponse.json();
+                if (!dbResponse.ok) {
+                    let errorMsg = dbData.message || dbResponse.statusText;
+                    if (dbData.code === 'object_not_found') {
+                        errorMsg = "데이터베이스를 찾을 수 없습니다. (ID가 정확한지, 통합 기능이 공유되었는지 확인해주세요)";
+                    } else if (dbData.code === 'unauthorized') {
                         errorMsg = "토큰이 유효하지 않습니다.";
+                    } else if (dbData.code === 'restricted_resource' || dbResponse.status === 403) {
+                        errorMsg = "접근 권한이 없습니다. (통합 기능 공유 설정을 확인해주세요)";
                     }
                     throw new Error(errorMsg);
                 }
-                return data;
+
+                // 제목(title) 타입의 프로퍼티 이름 찾기
+                let titlePropertyName = 'title'; // 기본값
+                const properties = dbData.properties;
+                for (const key in properties) {
+                    if (properties[key].type === 'title') {
+                        titlePropertyName = key;
+                        break;
+                    }
+                }
+
+                // 2단계: 실제 페이지 생성
+                const notionBlocks = parseToBlocks(content, mode, url);
+
+                return fetch("https://api.notion.com/v1/pages", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${token}`,
+                        "Content-Type": "application/json",
+                        "Notion-Version": "2022-06-28"
+                    },
+                    body: JSON.stringify({
+                        parent: { database_id: sanitizedDbId },
+                        properties: {
+                            [titlePropertyName]: {
+                                title: [{ text: { content: title } }]
+                            }
+                        },
+                        children: notionBlocks
+                    })
+                });
             })
-            .then(data => sendResponse({ success: true, data }))
-            .catch(error => sendResponse({ success: false, error: error.message }));
+            .then(async response => {
+                if (response instanceof Response) {
+                    const data = await response.json();
+                    if (!response.ok) {
+                        throw new Error(data.message || "페이지 생성 실패");
+                    }
+                    sendResponse({ success: true, data });
+                }
+            })
+            .catch(error => {
+                console.error('Notion Error:', error);
+                sendResponse({ success: false, error: error.message });
+            });
 
         return true;
     }
 
     if (request.action === "DOWNLOAD_FILE") {
-        const { url, filename } = request.data;
+        const { base64, url: directUrl, filename } = request.data;
+
+        let downloadUrl = directUrl;
+
+        // base64로 전달된 경우 Blob으로 변환하여 안정적인 파일명 제안 유도
+        if (base64) {
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'application/pdf' });
+            downloadUrl = URL.createObjectURL(blob);
+        }
+
         chrome.downloads.download({
-            url: url,
+            url: downloadUrl,
             filename: filename,
             saveAs: true // 폴더 선택 창 표시
         }, (downloadId) => {
+            // Blob URL인 경우 일정 시간 후 해제
+            if (base64 && downloadUrl.startsWith('blob:')) {
+                setTimeout(() => URL.revokeObjectURL(downloadUrl), 60000);
+            }
+
             if (chrome.runtime.lastError) {
                 sendResponse({ success: false, error: chrome.runtime.lastError.message });
             } else {
