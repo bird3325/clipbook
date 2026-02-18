@@ -17,9 +17,21 @@ interface StorageData {
 export const storageService = {
     get: async (keys: StorageKey[]): Promise<StorageData> => {
         return new Promise((resolve) => {
-            const result: StorageData = {};
+            // Priority 1: chrome.storage.local (Most reliable for extension pages)
+            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+                chrome.storage.local.get(keys, (chromeResult) => {
+                    // Also sync to localStorage for faster initial loads next time or fallback
+                    Object.keys(chromeResult).forEach(k => {
+                        const val = chromeResult[k];
+                        localStorage.setItem(k, typeof val === 'string' ? val : JSON.stringify(val));
+                    });
+                    resolve(chromeResult);
+                });
+                return;
+            }
 
-            // 1. Try localStorage first (Primary)
+            // Priority 2: localStorage (Web app or fallback)
+            const result: StorageData = {};
             keys.forEach(key => {
                 const item = localStorage.getItem(key);
                 if (item !== null) {
@@ -30,34 +42,14 @@ export const storageService = {
                     }
                 }
             });
-
-            // 2. If chrome.storage is available and some keys are missing, try chrome.storage (Fallback/Sync)
-            const missingKeys = keys.filter(k => result[k] === undefined);
-
-            if (missingKeys.length > 0 && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-                chrome.storage.local.get(missingKeys, (chromeResult) => {
-                    const finalResult = { ...result, ...chromeResult };
-
-                    // Sync back to localStorage if found in chrome.storage
-                    missingKeys.forEach(k => {
-                        if (chromeResult[k] !== undefined) {
-                            const val = chromeResult[k];
-                            localStorage.setItem(k, typeof val === 'string' ? val : JSON.stringify(val));
-                        }
-                    });
-
-                    resolve(finalResult);
-                });
-            } else {
-                resolve(result);
-            }
+            resolve(result);
         });
     },
 
     set: async (data: StorageData): Promise<void> => {
         return new Promise((resolve, reject) => {
             try {
-                // 1. Save to localStorage (Primary)
+                // 1. Save to localStorage (Local access)
                 Object.keys(data).forEach(key => {
                     const value = data[key];
                     if (value === undefined || value === null) {
@@ -67,12 +59,11 @@ export const storageService = {
                     }
                 });
 
-                // 2. Save to chrome.storage if available (Mirroring for content scripts)
+                // 2. Save to chrome.storage if available (Primary & Sync)
                 if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
                     chrome.storage.local.set(data, () => {
                         if (chrome.runtime.lastError) {
                             console.error('[Storage] Chrome storage error:', chrome.runtime.lastError);
-                            // We don't reject here because localStorage succeeded
                         }
                         resolve();
                     });
@@ -95,7 +86,15 @@ export const storageService = {
             const chromeListener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
                 const simplifiedChanges: { [key: string]: any } = {};
                 Object.keys(changes).forEach(key => {
-                    simplifiedChanges[key] = changes[key].newValue;
+                    const newVal = changes[key].newValue;
+                    simplifiedChanges[key] = newVal;
+
+                    // CRITICAL: Sync back to localStorage so UI stays updated across origins/reloads
+                    if (newVal === undefined || newVal === null) {
+                        localStorage.removeItem(key);
+                    } else {
+                        localStorage.setItem(key, typeof newVal === 'string' ? newVal : JSON.stringify(newVal));
+                    }
                 });
                 callback(simplifiedChanges);
             };
@@ -103,7 +102,7 @@ export const storageService = {
             listeners.push(() => chrome.storage.onChanged.removeListener(chromeListener));
         }
 
-        // LocalStorage changes (cross-tab sync)
+        // LocalStorage changes (cross-tab sync for non-extension environments)
         const storageListener = (e: StorageEvent) => {
             if (e.key && e.newValue !== null) {
                 try {

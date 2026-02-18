@@ -311,13 +311,6 @@ const App: React.FC = () => {
             <h1 className="text-lg font-extrabold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">ClipBook AI</h1>
             <div className="flex items-center gap-2">
               <p className="text-[10px] text-gray-500 font-medium tracking-wide">Smart Researcher v1.0</p>
-              <button
-                onClick={() => chrome.tabs.create({ url: 'index.html' })}
-                className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold hover:bg-indigo-100 transition-colors"
-                title="대시보드(전체화면) 열기"
-              >
-                ↗ Open Dashboard
-              </button>
             </div>
           </div>
         </div>
@@ -518,16 +511,24 @@ const App: React.FC = () => {
               />
             </div>
 
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-xs font-bold text-gray-700">위젯 내 저장 버튼 표시</span>
-              <button
-                onClick={() => setShowFloatingButton(!showFloatingButton)}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${showFloatingButton ? 'bg-indigo-600' : 'bg-gray-200'}`}
-              >
-                <span
-                  className={`${showFloatingButton ? 'translate-x-5' : 'translate-x-1'} inline-block h-3 w-3 transform rounded-full bg-white transition-transform`}
-                />
-              </button>
+            <div className="mt-4 p-4 bg-indigo-50/50 border border-indigo-100/50 rounded-2xl transition-all hover:bg-indigo-50/80 group">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[13px] font-extrabold text-slate-800 tracking-tight">텍스트 선택 시 저장 버튼 표시</span>
+                  <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                    웹페이지에서 텍스트를 드래그할 때 <br />
+                    <span className="text-indigo-600 font-bold decoration-indigo-200 decoration-2 underline-offset-2">ClipBook 저장 버튼</span>을 표시합니다.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowFloatingButton(!showFloatingButton)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 ${showFloatingButton ? 'bg-indigo-600 shadow-lg shadow-indigo-200' : 'bg-slate-200'}`}
+                >
+                  <span
+                    className={`${showFloatingButton ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-300 ease-in-out`}
+                  />
+                </button>
+              </div>
             </div>
 
             <button
