@@ -6,20 +6,19 @@ interface GlassCardProps {
     hoverEffect?: boolean;
 }
 
-const GlassCard = ({ children, className = '', hoverEffect = false }: GlassCardProps) => {
+const GlassCard: React.FC<GlassCardProps> = ({ children, className = '', hoverEffect = false }) => {
     return (
         <div
             className={`
         relative overflow-hidden
-        bg-white/60 backdrop-blur-xl
-        border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]
-        rounded-2xl p-6
-        transition-all duration-300 ease-out
-        ${hoverEffect ? 'hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:translate-y-[-2px] hover:border-blue-500/20' : ''}
+        bg-white/80 backdrop-blur-md
+        border border-slate-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.04)]
+        rounded-2xl p-8
+        transition-all duration-300
+        ${hoverEffect ? 'hover:shadow-lg hover:shadow-indigo-500/5 hover:-translate-y-0.5 hover:border-indigo-500/20 cursor-pointer' : ''}
         ${className}
       `}
         >
-            <div className="absolute inset-0 bg-gradient-to-br from-white/80 to-transparent pointer-events-none" />
             <div className="relative z-10">
                 {children}
             </div>

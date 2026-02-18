@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react()],
+    optimizeDeps: {
+      include: ['@google/generative-ai']
+    },
     build: {
       rollupOptions: {
         input: {

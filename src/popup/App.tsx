@@ -8,6 +8,7 @@ import { Clipping, SummaryMode, SavedItem, AIModel } from './types';
 import { generateAIContent } from './services/aiService';
 import { saveAsPDF } from './services/pdfService';
 import { Icons } from './constants';
+import { storageService, StorageKey } from '../web/services/storage';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'capture' | 'history'>('capture');
@@ -37,10 +38,13 @@ const App: React.FC = () => {
   };
 
 
-  // Load history & clippings & apiKey from chrome.storage
+  // Load history & clippings & apiKey from storageService
   useEffect(() => {
     // 초기 로드
-    chrome.storage.local.get(['history', 'clippings', 'apiKey', 'openaiApiKey', 'claudeApiKey', 'notionToken', 'notionDbId', 'showFloatingButton', 'aiModel'], (result) => {
+    const loadSettings = async () => {
+      const keys: StorageKey[] = ['history', 'clippings', 'apiKey', 'openaiApiKey', 'claudeApiKey', 'notionToken', 'notionDbId', 'showFloatingButton', 'aiModel'];
+      const result = await storageService.get(keys);
+
       if (result.history) setHistory(result.history);
       if (result.clippings) setClippings(result.clippings);
       if (result.apiKey) setApiKey(result.apiKey);
@@ -63,33 +67,36 @@ const App: React.FC = () => {
         } else {
           initialModel = 'gemini-3-flash-preview';
         }
-        chrome.storage.local.set({ aiModel: initialModel });
+        storageService.set({ aiModel: initialModel });
       }
       console.log(`[Storage] Loaded AI Model: ${initialModel}`);
       setAiModel(initialModel as AIModel);
       isLoaded.current = true;
-    });
-
-    // 변경 사항 감지
-    const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-      if (changes.history) setHistory(changes.history.newValue || []);
-      if (changes.clippings) setClippings(changes.clippings.newValue || []);
-      if (changes.apiKey) setApiKey(changes.apiKey.newValue || '');
-      if (changes.openaiApiKey) setOpenaiApiKey(changes.openaiApiKey.newValue || '');
-      if (changes.claudeApiKey) setClaudeApiKey(changes.claudeApiKey.newValue || '');
-      if (changes.notionToken) setNotionToken(changes.notionToken.newValue || '');
-      if (changes.notionDbId) setNotionDbId(changes.notionDbId.newValue || '');
-      if (changes.showFloatingButton) setShowFloatingButton(changes.showFloatingButton.newValue);
-      if (changes.aiModel) setAiModel(changes.aiModel.newValue);
     };
 
-    chrome.storage.onChanged.addListener(handleStorageChange);
-    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+    loadSettings();
+
+    // 변경 사항 감지
+    const unsubscribe = storageService.onChange((changes) => {
+      if (changes.history !== undefined) setHistory(changes.history);
+      if (changes.clippings !== undefined) setClippings(changes.clippings);
+      if (changes.apiKey !== undefined) setApiKey(changes.apiKey);
+      if (changes.openaiApiKey !== undefined) setOpenaiApiKey(changes.openaiApiKey);
+      if (changes.claudeApiKey !== undefined) setClaudeApiKey(changes.claudeApiKey);
+      if (changes.notionToken !== undefined) setNotionToken(changes.notionToken);
+      if (changes.notionDbId !== undefined) setNotionDbId(changes.notionDbId);
+      if (changes.showFloatingButton !== undefined) {
+        setShowFloatingButton(changes.showFloatingButton === 'true' || changes.showFloatingButton === true);
+      }
+      if (changes.aiModel !== undefined) setAiModel(changes.aiModel);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     if (isLoaded.current) {
-      chrome.storage.local.set({ history });
+      storageService.set({ history });
     }
   }, [history]);
 
@@ -100,8 +107,8 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveSettings = () => {
-    chrome.storage.local.set({
+  const handleSaveSettings = async () => {
+    await storageService.set({
       apiKey,
       openaiApiKey,
       claudeApiKey,
@@ -123,14 +130,14 @@ const App: React.FC = () => {
     };
     const updated = [...clippings, newClip];
     setClippings(updated);
-    chrome.storage.local.set({ clippings: updated });
+    storageService.set({ clippings: updated });
     showToast('텍스트가 수집되었습니다.', 'success');
   };
 
   const handleRemoveClipping = (id: string) => {
     const updated = clippings.filter(c => c.id !== id);
     setClippings(updated);
-    chrome.storage.local.set({ clippings: updated });
+    storageService.set({ clippings: updated });
   };
 
   const handleStartAI = async (mode: SummaryMode, instruction: string) => {
@@ -300,9 +307,18 @@ const App: React.FC = () => {
           <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 transform hover:scale-105 transition-transform duration-300">
             <Icons.Clip />
           </div>
-          <div>
+          <div className="flex flex-col">
             <h1 className="text-lg font-extrabold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">ClipBook AI</h1>
-            <p className="text-[10px] text-gray-500 font-medium tracking-wide">Smart Researcher v1.0</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] text-gray-500 font-medium tracking-wide">Smart Researcher v1.0</p>
+              <button
+                onClick={() => chrome.tabs.create({ url: 'index.html' })}
+                className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold hover:bg-indigo-100 transition-colors"
+                title="대시보드(전체화면) 열기"
+              >
+                ↗ Open Dashboard
+              </button>
+            </div>
           </div>
         </div>
 
@@ -421,7 +437,7 @@ const App: React.FC = () => {
                     className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600"
                     tabIndex={-1}
                   >
-                    {showGeminiKey ? <Icons.EyeOff /> : <Icons.Eye />}
+                    {showGeminiKey ? <Icons.Eye /> : <Icons.EyeOff />}
                   </button>
                 </div>
               </div>
@@ -443,7 +459,7 @@ const App: React.FC = () => {
                     className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600"
                     tabIndex={-1}
                   >
-                    {showOpenAIKey ? <Icons.EyeOff /> : <Icons.Eye />}
+                    {showOpenAIKey ? <Icons.Eye /> : <Icons.EyeOff />}
                   </button>
                 </div>
               </div>
@@ -465,7 +481,7 @@ const App: React.FC = () => {
                     className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600"
                     tabIndex={-1}
                   >
-                    {showClaudeKey ? <Icons.EyeOff /> : <Icons.Eye />}
+                    {showClaudeKey ? <Icons.Eye /> : <Icons.EyeOff />}
                   </button>
                 </div>
               </div>
@@ -486,7 +502,7 @@ const App: React.FC = () => {
                   className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600"
                   tabIndex={-1}
                 >
-                  {showNotionKey ? <Icons.EyeOff /> : <Icons.Eye />}
+                  {showNotionKey ? <Icons.Eye /> : <Icons.EyeOff />}
                 </button>
               </div>
             </div>
@@ -503,7 +519,7 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-between pt-2">
-              <span className="text-xs font-bold text-gray-700">텍스트 선택 시 저장 버튼 표시</span>
+              <span className="text-xs font-bold text-gray-700">위젯 내 저장 버튼 표시</span>
               <button
                 onClick={() => setShowFloatingButton(!showFloatingButton)}
                 className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${showFloatingButton ? 'bg-indigo-600' : 'bg-gray-200'}`}

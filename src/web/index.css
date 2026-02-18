@@ -12,23 +12,13 @@
     }
 
     body {
-        font-family: 'Inter', 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-        background-color: #FFFFFF;
-        color: #212529;
-    }
-
-    button,
-    a,
-    [role="button"],
-    input[type="submit"],
-    input[type="button"] {
-        cursor: pointer;
+        @apply antialiased text-slate-900 bg-[#F8F9FC];
     }
 }
 
 @layer utilities {
+
+    /* Custom Scrollbar - Indigo Theme */
     .custom-scrollbar::-webkit-scrollbar {
         width: 6px;
         height: 6px;
@@ -39,26 +29,25 @@
     }
 
     .custom-scrollbar::-webkit-scrollbar-thumb {
-        background-color: rgba(67, 97, 238, 0.2);
+        background-color: #cbd5e1;
+        /* slate-300 */
         border-radius: 9999px;
     }
 
     .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(67, 97, 238, 0.4);
+        background-color: #94a3b8;
+        /* slate-400 */
     }
 
+    /* Glassmorphism - Premium Clean */
     .glass {
-        background: rgba(255, 255, 255, 0.7);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.5);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(226, 232, 240, 0.8);
+        /* slate-200 */
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
     }
 
-    .glass-dark {
-        background: rgba(33, 37, 41, 0.8);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
+    /* Removed .glass-dark { ... } */
 }
