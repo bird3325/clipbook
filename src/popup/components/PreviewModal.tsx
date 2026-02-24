@@ -76,8 +76,15 @@ const PreviewModal: React.FC<PreviewModalProps> = ({ mode, content, clippings, o
               <label className="block text-xs font-bold text-gray-400 uppercase">수집된 원문</label>
               <div className="h-80 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
                 {clippings.map(c => (
-                  <div key={c.id} className="p-3 bg-gray-50 rounded-xl text-xs text-gray-600 border border-gray-100">
-                    "{c.text}"
+                  <div key={c.id} className="p-3 bg-gray-50 rounded-xl text-xs text-gray-600 border border-gray-100 flex items-center gap-3">
+                    {c.type === 'image' && c.imageData ? (
+                      <div className="w-12 h-12 rounded overflow-hidden shrink-0 border border-gray-200">
+                        <img src={c.imageData} alt="Clipping" className="w-full h-full object-cover" />
+                      </div>
+                    ) : (
+                      <div className="w-4 h-4 text-indigo-400 shrink-0"><Icons.Clip /></div>
+                    )}
+                    <span className="truncate flex-1">"{c.text}"</span>
                   </div>
                 ))}
               </div>

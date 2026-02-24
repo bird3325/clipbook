@@ -9,7 +9,10 @@ interface CaptureTabProps {
   onRemoveClipping: (id: string) => void;
   onStartAI: (mode: SummaryMode, instruction: string) => void;
   onCaptureFromPage: () => void;
+  onCaptureImage: () => void;
   isProcessing: boolean;
+  interference: number;
+  onInterferenceChange: (value: number) => void;
 }
 
 const CaptureTab: React.FC<CaptureTabProps> = ({
@@ -18,7 +21,10 @@ const CaptureTab: React.FC<CaptureTabProps> = ({
   onRemoveClipping,
   onStartAI,
   onCaptureFromPage,
-  isProcessing
+  onCaptureImage,
+  isProcessing,
+  interference,
+  onInterferenceChange
 }) => {
   const [instruction, setInstruction] = useState('');
   const [selectedMode, setSelectedMode] = useState<SummaryMode | null>(null);
@@ -37,17 +43,34 @@ const CaptureTab: React.FC<CaptureTabProps> = ({
     <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
       {/* Capture Area */}
       <section className="premium-card p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600"><Icons.Clip /></span>
-            <span className="bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">텍스트 수집</span>
-          </h2>
-          <button
-            onClick={onCaptureFromPage}
-            className="text-xs font-bold px-4 py-2 rounded-full transition-all bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:shadow-md active:scale-95 border border-indigo-100"
-          >
-            ✨ 드래그한 내용 가져오기
-          </button>
+        <div className="flex flex-col gap-4 mb-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+              <span className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
+                <Icons.Clip />
+              </span>
+              <span className="bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent whitespace-nowrap">
+                텍스트 수집
+              </span>
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={onCaptureFromPage}
+              className="text-[11px] font-bold py-2.5 rounded-xl transition-all bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:shadow-md active:scale-95 border border-indigo-100 flex items-center justify-center gap-1.5"
+            >
+              <span>✨</span>
+              <span>텍스트 가져오기</span>
+            </button>
+            <button
+              onClick={onCaptureImage}
+              className="text-[11px] font-bold py-2.5 rounded-xl transition-all bg-purple-50 text-purple-600 hover:bg-purple-100 hover:shadow-md active:scale-95 border border-purple-100 flex items-center justify-center gap-1.5"
+            >
+              <Icons.Camera />
+              <span>이미지 캡처</span>
+            </button>
+          </div>
         </div>
 
         <div className="relative group">
@@ -79,13 +102,20 @@ const CaptureTab: React.FC<CaptureTabProps> = ({
         </div>
 
         {clippings.length > 0 && (
-          <div className="mt-5 flex flex-col gap-2 max-h-32 overflow-y-auto custom-scrollbar p-1">
+          <div className="mt-5 flex flex-col gap-2 p-1">
             {clippings.map((clip) => (
               <div
                 key={clip.id}
-                className="group relative bg-white border border-gray-200 text-gray-600 text-xs py-2 px-3 pr-8 rounded-lg shadow-sm hover:shadow-md hover:border-indigo-200 transition-all w-full truncate animate-in zoom-in-95 duration-200 flex items-center"
+                className="group relative bg-white border border-gray-200 text-gray-600 text-xs py-2 px-3 pr-8 rounded-lg shadow-sm hover:shadow-md hover:border-indigo-200 transition-all w-full animate-in zoom-in-95 duration-200 flex items-center gap-2"
               >
-                <span className="opacity-80">{clip.text}</span>
+                {clip.type === 'image' && clip.imageData ? (
+                  <div className="w-10 h-10 rounded border border-gray-100 overflow-hidden shrink-0 bg-gray-50 flex items-center justify-center">
+                    <img src={clip.imageData} alt="Captured" className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="w-4 h-4 text-indigo-400 shrink-0"><Icons.Clip /></div>
+                )}
+                <span className="truncate opacity-80 flex-1">{clip.text}</span>
                 <button
                   onClick={() => onRemoveClipping(clip.id)}
                   className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
@@ -143,6 +173,35 @@ const CaptureTab: React.FC<CaptureTabProps> = ({
             placeholder="예: '팀 내 공유용으로 부드러운 말투로 요약해줘'"
             className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
           />
+        </div>
+
+        <div className="mb-8 p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-gray-700">AI 간섭 정도 (AI Interference)</span>
+              <span className="text-[10px] text-gray-400 mt-0.5">
+                {interference === 0 ? '원문에 매우 충실함' : interference <= 40 ? '정교한 요약 중심' : interference <= 70 ? '자연스러운 문장 재구성' : '창의적인 확장 및 변형'}
+              </span>
+            </div>
+            <span className={`text-sm font-black ${interference > 70 ? 'text-purple-600' : 'text-indigo-600'}`}>{interference}%</span>
+          </div>
+          <div className="relative flex items-center group">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="10"
+              value={interference}
+              onChange={(e) => onInterferenceChange(parseInt(e.target.value))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 focus:outline-none transition-all"
+            />
+            {/* Range markers */}
+            <div className="absolute top-5 left-0 w-full flex justify-between px-0.5 pointer-events-none">
+              <span className="text-[8px] font-bold text-gray-400">0%</span>
+              <span className="text-[8px] font-bold text-gray-400">50%</span>
+              <span className="text-[8px] font-bold text-gray-400">100%</span>
+            </div>
+          </div>
         </div>
 
         <button

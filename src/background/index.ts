@@ -40,7 +40,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // 메시지 리스너 (Notion API 호출 등)
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "SAVE_TO_NOTION") {
-        const { token, databaseId, title, content, url, mode } = request.data;
+        const { token, databaseId, title, content, url, mode, clippings } = request.data;
 
         // Database ID 정제 (URL에서 32자리 UUID 추출 강화)
         const cleanDbId = (id: string): string => {
@@ -63,7 +63,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const sanitizedDbId = cleanDbId(databaseId);
 
         // 마크다운을 노션 블록으로 파싱
-        const parseToBlocks = (text: string, m: string, sourceUrl: string) => {
+        const parseToBlocks = (text: string, m: string, sourceUrl: string, clipData: any[]) => {
             const lines = text.split('\n');
             const blocks: any[] = [];
 
@@ -114,6 +114,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 } else if (trimmed.startsWith('- [ ] ') || trimmed.startsWith('- [x] ')) {
                     flushList();
                     blocks.push({ object: 'block', type: 'to_do', to_do: { checked: trimmed.startsWith('- [x] '), rich_text: [{ type: 'text', text: { content: trimmed.replace(/- \[[ x]\] /, '') } }] } });
+                } else if (trimmed.includes('[IMAGE_ID:')) {
+                    flushList();
+                    // [IMAGE_ID: xxxx] 패턴 분리 및 처리
+                    const parts = trimmed.split(/(\[IMAGE_ID:\s*\d+\])/);
+                    parts.forEach(part => {
+                        const match = part.match(/\[IMAGE_ID:\s*(\d+)\]/);
+                        if (match) {
+                            const imageId = match[1];
+                            const clipping = clipData.find(c => c.id === imageId);
+                            if (clipping && clipping.imageData) {
+                                // Notion API requires external URL or file stored on their servers usually.
+                                // But some integrations can handle base64 via internal methods or we might need a workaround.
+                                // Actually, Notion API 2022-06-28 external images MUST be a URL.
+                                // Since we have base64, this is tricky. We'll skip for now or try to use a data URL if supported.
+                                // Note: Notion doesn't support data URLs in the 'external' field.
+                                // To truly support this, we'd need to upload the image somewhere or use another method.
+                                // For now, we'll add a callout or note about the image if we can't embed it directly.
+                                blocks.push({
+                                    object: 'block',
+                                    type: 'callout',
+                                    callout: {
+                                        icon: { type: 'emoji', emoji: '🖼️' },
+                                        rich_text: [{ type: 'text', text: { content: `수집된 이미지 (ID: ${imageId})` } }]
+                                    }
+                                });
+                            }
+                        } else if (part.trim()) {
+                            blocks.push({ object: 'block', type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: part.trim() } }] } });
+                        }
+                    });
                 } else {
                     flushList();
                     blocks.push({ object: 'block', type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: trimmed } }] } });
@@ -170,7 +200,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 }
 
                 // 2단계: 실제 페이지 생성
-                const notionBlocks = parseToBlocks(content, mode, url);
+                const notionBlocks = parseToBlocks(content, mode, url, clippings);
 
                 return fetch("https://api.notion.com/v1/pages", {
                     method: "POST",
@@ -212,16 +242,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         let downloadUrl = directUrl;
 
-        // base64로 전달된 경우 Blob으로 변환하여 안정적인 파일명 제안 유도
+        // base64로 전달된 경우 Data URL로 변환하여 다운로드
         if (base64) {
-            const byteCharacters = atob(base64);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: 'application/pdf' });
-            downloadUrl = URL.createObjectURL(blob);
+            downloadUrl = `data:application/pdf;base64,${base64}`;
         }
 
         chrome.downloads.download({
@@ -229,15 +252,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             filename: filename,
             saveAs: true // 폴더 선택 창 표시
         }, (downloadId) => {
-            // Blob URL인 경우 일정 시간 후 해제
-            if (base64 && downloadUrl.startsWith('blob:')) {
-                setTimeout(() => URL.revokeObjectURL(downloadUrl), 60000);
-            }
-
             if (chrome.runtime.lastError) {
                 sendResponse({ success: false, error: chrome.runtime.lastError.message });
             } else {
                 sendResponse({ success: true, downloadId });
+            }
+        });
+        return true;
+    }
+
+    if (request.action === "CAPTURE_VISIBLE_TAB") {
+        chrome.tabs.captureVisibleTab(undefined, { format: 'png' }, (dataUrl) => {
+            if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+                sendResponse({ success: true, dataUrl });
             }
         });
         return true;

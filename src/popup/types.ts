@@ -15,7 +15,9 @@ export type AIModel =
 
 export interface Clipping {
   id: string;
+  type: 'text' | 'image';
   text: string;
+  imageData?: string; // base64 data URL
   sourceUrl: string;
   timestamp: number;
 }

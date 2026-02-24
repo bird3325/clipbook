@@ -72,9 +72,20 @@ const LibraryTab: React.FC<LibraryTabProps> = ({ history, onDelete, onExport }) 
               <h3 className="font-bold text-gray-800 mb-2 text-base group-hover:text-indigo-600 transition-colors line-clamp-1">
                 {item.title}
               </h3>
-              <p id={`summary-${item.id}`} className="text-sm text-gray-600 line-clamp-2 leading-relaxed transition-all">
-                {item.summary}
-              </p>
+              <div className="flex gap-4 mb-2">
+                {item.clippings.find(c => c.type === 'image' && c.imageData) && (
+                  <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0 border border-gray-100 shadow-sm">
+                    <img
+                      src={item.clippings.find(c => c.type === 'image')?.imageData}
+                      alt="Thumbnail"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+                <p id={`summary-${item.id}`} className="text-sm text-gray-600 line-clamp-3 leading-relaxed transition-all flex-1">
+                  {item.summary}
+                </p>
+              </div>
               <div className="mt-4 pt-3 border-t border-gray-50 flex items-center justify-between text-[11px] text-gray-400">
                 <div className="flex items-center gap-1.5 font-medium">
                   <Icons.Clip /> {item.clippings.length} clips

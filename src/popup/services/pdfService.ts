@@ -2,8 +2,9 @@ import { marked } from 'marked';
 import { SummaryMode } from '../types';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { Clipping } from '../types';
 
-export const saveAsPDF = async (title: string, content: string, mode: SummaryMode) => {
+export const saveAsPDF = async (title: string, content: string, mode: SummaryMode, clippings: Clipping[]) => {
   // 1. 임시 렌더링용 컨테이너 생성
   const container = document.createElement('div');
   container.id = 'pdf-render-container';
@@ -17,8 +18,23 @@ export const saveAsPDF = async (title: string, content: string, mode: SummaryMod
   container.style.fontFamily = "'Noto Sans KR', sans-serif";
   container.style.lineHeight = '1.7';
 
-  // 2. 마크다운 변환
-  const renderedContent = await marked.parse(content);
+  // 2. 마크다운 변환 및 이미지 태그 처리
+  let processedContent = content;
+
+  // [IMAGE_ID: xxxx] 패턴을 찾아서 수집된 이미지로 변환
+  const imageTagRegex = /\[IMAGE_ID:\s*(\d+)\]/g;
+  processedContent = processedContent.replace(imageTagRegex, (match, id) => {
+    const clipping = clippings.find(c => c.id === id);
+    if (clipping && clipping.type === 'image' && clipping.imageData) {
+      return `<div style="margin: 20px 0; text-align: center;">
+                <img src="${clipping.imageData}" style="max-width: 100%; border-radius: 8px; border: 1px solid #eee;" />
+                <p style="font-size: 8pt; color: #9ca3af; margin-top: 5px;">[수집 이미지: ${id}]</p>
+              </div>`;
+    }
+    return match;
+  });
+
+  const renderedContent = await marked.parse(processedContent);
 
   // 3. 스타일 설정
   const modeStyles = (m: SummaryMode) => {

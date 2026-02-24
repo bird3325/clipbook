@@ -25,6 +25,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewData, setPreviewData] = useState<{ mode: SummaryMode; content: string } | null>(null);
+  const [aiInterference, setAiInterference] = useState(50);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Password visibility states
@@ -121,17 +122,19 @@ const App: React.FC = () => {
     showToast('설정이 저장되었습니다.', 'success');
   };
 
-  const handleAddClipping = (text: string) => {
+  const handleAddClipping = (text: string, type: 'text' | 'image' = 'text', imageData?: string) => {
     const newClip: Clipping = {
       id: Date.now().toString(),
+      type,
       text,
+      imageData,
       sourceUrl: window.location.href,
       timestamp: Date.now()
     };
     const updated = [...clippings, newClip];
     setClippings(updated);
     storageService.set({ clippings: updated });
-    showToast('텍스트가 수집되었습니다.', 'success');
+    showToast(type === 'image' ? '이미지가 수집되었습니다.' : '텍스트가 수집되었습니다.', 'success');
   };
 
   const handleRemoveClipping = (id: string) => {
@@ -161,7 +164,7 @@ const App: React.FC = () => {
 
     setIsProcessing(true);
     try {
-      const result = await generateAIContent(mode, clippings, instruction, currentKey, aiModel);
+      const result = await generateAIContent(mode, clippings, instruction, currentKey, aiModel, aiInterference);
       setPreviewData({ mode, content: result });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "AI 처리 중 오류가 발생했습니다.";
@@ -190,6 +193,23 @@ const App: React.FC = () => {
     });
   };
 
+  const handleCaptureImage = () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs[0];
+      if (activeTab?.id) {
+        chrome.tabs.sendMessage(activeTab.id, { action: "START_REGION_CAPTURE" }, (response) => {
+          if (chrome.runtime.lastError) {
+            showToast("페이지를 새로고침한 후 다시 시도해주세요.", 'error');
+            return;
+          }
+          if (response && response.success) {
+            window.close(); // Close popup to let user select region
+          }
+        });
+      }
+    });
+  };
+
   const handleFinalSave = async (target: 'NOTION' | 'PDF' | 'HISTORY', content: string, title: string) => {
     if (!previewData) return;
 
@@ -206,7 +226,7 @@ const App: React.FC = () => {
 
     try {
       if (target === 'PDF') {
-        saveAsPDF(title, content, previewData.mode);
+        saveAsPDF(title, content, previewData.mode, [...clippings]);
         showToast('PDF 파일이 생성되었습니다.', 'success');
       } else if (target === 'NOTION') {
         if (!notionToken || !notionDbId) {
@@ -223,7 +243,8 @@ const App: React.FC = () => {
             title,
             content,
             url: clippings[0]?.sourceUrl || '',
-            mode: previewData.mode
+            mode: previewData.mode,
+            clippings: [...clippings]
           }
         }, (response) => {
           if (response && response.success) {
@@ -252,7 +273,7 @@ const App: React.FC = () => {
   const handleExportFromHistory = async (target: 'NOTION' | 'PDF', item: SavedItem) => {
     try {
       if (target === 'PDF') {
-        saveAsPDF(item.title, item.summary, item.mode);
+        saveAsPDF(item.title, item.summary, item.mode, item.clippings);
         showToast('PDF 파일이 생성되었습니다.', 'success');
       } else if (target === 'NOTION') {
         if (!notionToken || !notionDbId) {
@@ -600,11 +621,14 @@ const App: React.FC = () => {
         {activeTab === 'capture' ? (
           <CaptureTab
             clippings={clippings}
-            onAddClipping={handleAddClipping}
+            onAddClipping={(text) => handleAddClipping(text)}
             onRemoveClipping={handleRemoveClipping}
             onStartAI={handleStartAI}
             onCaptureFromPage={handleCaptureFromPage}
+            onCaptureImage={handleCaptureImage}
             isProcessing={isProcessing}
+            interference={aiInterference}
+            onInterferenceChange={setAiInterference}
           />
         ) : (
           <LibraryTab
