@@ -17,6 +17,7 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "@rollup/plugin-replace": "^6.0.3",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/chrome": "^0.1.36",
     "@types/node": "^22.14.0",
